@@ -1,30 +1,37 @@
-import os, torch
-from fastapi import FastAPI, HTTPException, Request, Header, Depends
+import torch
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware   # ← import
 from transformers import pipeline
 
 MODEL_ID = "distilbert-base-uncased-finetuned-sst-2-english"
 device   = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-app = FastAPI(title="Sentiment API (lazy)")
-app.add_middleware(
-    # keep or tighten CORS as you need
+sent_pipe = None   # will lazy-load later
+
+# ---------- FastAPI ----------
+app = FastAPI(title="Sentiment API")
+
+app.add_middleware(                    # ← FIRST arg is the class
+    CORSMiddleware,                    # ← this was missing
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# ---------- lazy singleton ----------
+# ---------- lazy loader ----------
 def get_pipe():
-    if not hasattr(get_pipe, "_pipe"):
-        print("[lazy] Loading sentiment model …")
-        get_pipe._pipe = pipeline(
-            "text-classification",
-            model=MODEL_ID,
-            top_k=None,
-            device=0 if device.startswith("cuda") else -1,
-        )
-        print("[lazy] Model ready")
-    return get_pipe._pipe
+    global sent_pipe
+    if sent_pipe is None:
+        print("[lazy] loading sentiment model …")
+        sent_pipe = pipeline("text-classification",
+                             model=MODEL_ID,
+                             top_k=None,
+                             device=0 if device.startswith("cuda") else -1)
+        print("[lazy] model ready")
+    return sent_pipe
 
-# ---------- request schema ----------
+# ---------- schema ----------
 class SentReq(BaseModel):
     text: str
 
